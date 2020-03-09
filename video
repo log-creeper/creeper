@@ -1,0 +1,336 @@
+var authConfig = {
+    “ siteName”：“ GoIndex”，//网站名称
+    “ root_pass”：“ 356585LI”，//根目录密码，优先于.password
+    “ version”：“ 1.0.6”，//程序版本
+    “ theme”：“ material”，//经典材质 
+    “ client_id”：“ 202264815644.apps.googleusercontent.com”，
+    “ client_secret”：“ X4Z3ca8xfWDb1Voo-F9a7ZxJ”，
+    “ refresh_token”：“ 1 // 0eV3zpGnJuXDXCgYIARAAGA4SNwF-L9IrL5gDXTdIl4sRY7QgLfXQmJAUS_CPpP8ODDB0IMftyjrqXLtwCcDanuoynQGrlH2xs7I”，//标记
+    “ root”：“ root” //根目录ID
+};
+
+var gd;
+
+var html =`
+<！DOCTYPE html>
+<html>
+<头>
+  <meta charset =“ utf-8”>
+  <meta name =“ viewport” content =“ width = device-width，initial-scale = 1.0，maximum-scale = 1.0，user-scalable = no” />
+  <title> $ {authConfig.siteName} </ title>
+  <script src =“ // cdn.jsdelivr.net/combine/gh/jquery/jquery@3.2/dist/jquery.min.js,gh/donwa/goindex@${authConfig.version}/themes/${authConfig。主题} /app.js“> </ script>
+</ head>
+<身体>
+</ body>
+</ html>
+`;
+
+addEventListener（'fetch'，event => {
+    event.respondWith（handleRequest（event.request））;
+}）;
+
+/ **
+ *获取并记录请求
+ * @param {Request}请求
+ * /
+异步功能handleRequest（request）{
+    if（gd ==未定义）{
+      gd =新的googleDrive（authConfig）;
+    }
+
+    if（request.method =='POST'）{
+      返回apiRequest（request）;
+    }
+
+    让url =新的URL（request.url）;
+    让路径= url.pathname;
+    让动作= url.searchParams.get（'a'）;
+
+    if（path.substr（-1）=='/'||操作！= null）{
+      返回新的Response（html，{status：200，headers：{'Content-Type'：'text / html; charset = utf-8'}}）;
+    }其他{
+      if（path.split（'/'）。pop（）。toLowerCase（）==“ .password”）{
+         返回新的Response（“”，{status：404}）;
+      }
+      让文件=等待gd.file（path）;
+      让范围= request.headers.get（'Range'）;
+      返回gd.down（file.id，range）;
+    }
+}
+
+
+异步函数apiRequest（request）{
+    让url =新的URL（request.url）;
+    让路径= url.pathname;
+
+    let option = {状态：200，标题：{'Access-Control-Allow-Origin'：'*'}}
+
+    if（path.substr（-1）=='/'）{
+      //检查密码
+      让密码=等待gd.password（path）;
+      console.log（“ dir password”，password）;
+      if（密码！=未定义&&密码！=空&&密码！=“”）{
+        尝试{
+          var obj =等待request.json（）;
+        }抓住{e} {
+          var obj = {};
+        }
+        console.log（password，obj）;
+        if（password.replace（“ \ n”，“”）！= obj.password）{
+          let html =`{“ error”：{“ code”：401，“ message”：“密码错误。”}}`;
+          返回新的Response（html，option）;
+        }
+      }
+      让列表=等待gd.list（path）;
+      返回新的Response（JSON.stringify（list），option）;
+    }其他{
+      让文件=等待gd.file（path）;
+      让范围= request.headers.get（'Range'）;
+      返回新的Response（JSON.stringify（file））;
+    }
+}
+
+googleDrive类{
+    构造函数（authConfig）{
+        this.authConfig = authConfig;
+        this.paths = [];
+        this.files = [];
+        this.passwords = [];
+        this.paths [“ /”] = authConfig.root;
+        if（authConfig.root_pass！=“”）{
+	        this.passwords [“ /”] = authConfig.root_pass;
+        }
+        this.accessToken（）;
+    }
+
+    异步向下（id，range =''）{
+      let url =`https://www.googleapis.com/drive/v3/files/$ {id}？alt = media`;
+      让requestOption =等待this.requestOption（）;
+      requestOption.headers ['Range'] =范围；
+      返回等待fetch（url，requestOption）;
+    }
+
+    异步文件（路径）{
+      if（typeof this.files [path] =='undefined'）{
+        this.files [path] =等待this._file（path）;
+      }
+      返回this.files [path];
+    }
+
+    异步_file（path）{
+      让arr = path.split（'/'）;
+      让名字= arr.pop（）;
+      名称= encodeURIComponent（名称）.replace（/ \'/ g，“ \\'”）;
+      let dir = arr.join（'/'）+'/';
+      console.log（name，dir）;
+      让父=等待this.findPathId（dir）;
+      console.log（parent）;
+      让url ='https://www.googleapis.com/drive/v3/files';
+      let params = {'includeItemsFromAllDrives'：true，'supportsAllDrives'：true};
+      params.q =父母中的''$ {parent}'和name ='$ {name}'andtrashed = false`;
+      params.fields =“文件（id，名称，mimeType，大小，createdTime，modifiedTime，iconLink，thumbnailLink）”;
+      url + ='？'+ this.enQuery（params）;
+      让requestOption =等待this.requestOption（）;
+      let response =等待fetch（url，requestOption）;
+      让obj =等待response.json（）;
+      console.log（obj）;
+      返回obj.files [0];
+    }
+
+    //通过请求缓存来缓存
+    异步列表（路径）{
+      如果（gd.cache ==未定义）{
+        gd.cache = {};
+      }
+
+      如果（gd.cache [path]）{
+        返回gd.cache [path];
+      }
+
+      让id =等待this.findPathId（path）;
+      var obj =等待this._ls（id）;
+      如果（obj.files && obj.files.length> 1000）{
+            gd.cache [path] = obj;
+      }
+
+      返回obj
+    }
+
+    异步密码（路径）{
+      if（this.passwords [path]！==未定义）{
+        返回this.passwords [path];
+      }
+
+      console.log（“ load”，path，“。password”，this.passwords [path]）;
+
+      让文件=等待gd.file（path +'。password'）;
+      if（文件==未定义）{
+        this.passwords [path] = null;
+      }其他{
+        let url =`https://www.googleapis.com/drive/v3/files/$ {file.id}？alt = media`;
+        让requestOption =等待this.requestOption（）;
+        让response =等待this.fetch200（url，requestOption）;
+        this.passwords [path] =等待response.text（）;
+      }
+
+      返回this.passwords [path];
+    }
+
+    异步_ls（父级）{
+      console.log（“ _ ls”，parent）;
+
+      if（parent == undefined）{
+        返回null;
+      }
+      const文件= [];
+      让pageToken;
+      让obj;
+      let params = {'includeItemsFromAllDrives'：true，'supportsAllDrives'：true};
+      params.q =父母中的''$ {parent}'，并丢弃= false AND名称！='。password'`;
+      params.orderBy ='文件夹，名称，修改时间描述';
+      params.fields =“ nextPageToken，files（id，name，mimeType，size，modifiedTime）”“;
+      params.pageSize = 1000;
+
+      做{
+        如果（pageToken）{
+            params.pageToken = pageToken;
+        }
+        让url ='https://www.googleapis.com/drive/v3/files';
+        url + ='？'+ this.enQuery（params）;
+        让requestOption =等待this.requestOption（）;
+        let response =等待fetch（url，requestOption）;
+        obj =等待response.json（）;
+        files.push（... obj.files）;
+        pageToken = obj.nextPageToken;
+      } while（pageToken）;
+
+      obj.files =文件；
+      返回obj;
+    }
+
+    异步findPathId（path）{
+      让c_path ='/';
+      让c_id = this.paths [c_path];
+
+      让arr = path.trim（'/'）。split（'/'）;
+      for（让arr名称）{
+        c_path + =名称+'/';
+
+        if（typeof this.paths [c_path] =='undefined'）{
+          让id =等待this._findDirId（c_id，name）;
+          this.paths [c_path] = id;
+        }
+
+        c_id = this.paths [c_path];
+        if（c_id ==未定义|| c_id ==空）{
+          打破;
+        }
+      }
+      console.log（this.paths）;
+      返回this.paths [path];
+    }
+
+    异步_findDirId（父母，姓名）{
+      名称= encodeURIComponent（名称）.replace（/ \'/ g，“ \\'”）;
+      
+      console.log（“ _ findDirId”，parent，name）;
+
+      if（parent == undefined）{
+        返回null;
+      }
+
+      让url ='https://www.googleapis.com/drive/v3/files';
+      let params = {'includeItemsFromAllDrives'：true，'supportsAllDrives'：true};
+      params.q =父母中的''$ {parent}'，mimeType ='application / vnd.google-apps.folder'，name ='$ {name}'，trashed = false`;
+      params.fields =“ nextPageToken，files（id，name，mimeType）”;
+      url + ='？'+ this.enQuery（params）;
+      让requestOption =等待this.requestOption（）;
+      let response =等待fetch（url，requestOption）;
+      让obj =等待response.json（）;
+      if（obj.files [0] ==未定义）{
+        返回null;
+      }
+      返回obj.files [0] .id;
+    }
+
+    异步accessToken（）{
+      console.log（“ accessToken”）;
+      if（this.authConfig.expires ==未定义|| this.authConfig.expires <Date.now（））{
+        const obj =等待this.fetchAccessToken（）;
+        if（obj.access_token！=未定义）{
+          this.authConfig.accessToken = obj.access_token;
+          this.authConfig.expires = Date.now（）+ 3500 * 1000;
+        }
+      }
+      返回this.authConfig.accessToken;
+    }
+
+    异步fetchAccessToken（）{
+        console.log（“ fetchAccessToken”）;
+        const url =“ https://www.googleapis.com/oauth2/v4/token”;
+        const标头= {
+            “内容类型”：“ application / x-www-form-urlencoded”
+        };
+        const post_data = {
+            'client_id'：this.authConfig.client_id，
+            'client_secret'：this.authConfig.client_secret，
+            'refresh_token'：this.authConfig.refresh_token，
+            'grant_type'：'refresh_token'
+        }
+
+        让requestOption = {
+            'method'：'POST'，
+            “标题”：标题，
+            'body'：this.enQuery（post_data）
+        };
+
+        const response =等待fetch（url，requestOption）;
+        返回await response.json（）;
+    }
+
+    异步fetch200（url，requestOption）{
+        让回应；
+        for（让i = 0; i <3; i ++）{
+            响应=等待fetch（url，requestOption）;
+            console.log（response.status）;
+            if（response.status！= 403）{
+                打破;
+            }
+            等待this.sleep（800 *（i + 1））;
+        }
+        返回响应；
+    }
+
+    异步requestOption（headers = {}，method ='GET'）{
+      const accessToken =等待this.accessToken（）;
+      headers ['authorization'] ='Bearer'+ accessToken;
+      return {'method'：method，'headers'：headers};
+    }
+
+    enQuery（数据）{
+        const ret = [];
+        的（数据中的d）{
+            ret.push（encodeURIComponent（d）+'='+ encodeURIComponent（data [d]））;
+        }
+        返回ret.join（'＆'）;
+    }
+
+    睡眠时间（毫秒）{
+        返回新的Promise（函数（解决，拒绝）{
+            让我= 0;
+            setTimeout（function（）{
+                console.log（'sleep'+ ms）;
+                i ++;
+                如果（i> = 2）拒绝（新错误（'i> = 2'））;
+                否则解决（i）；
+            }， 女士）;
+        }）
+    }
+}
+
+String.prototype.trim =函数（字符）{
+    如果（字符）{
+        返回this.replace（new RegExp（'^ \\'+ char +'+ | \\'+ char +'+ $'，'g'），''）;
+    }
+    返回this.replace（/ ^ \ s + | \ s + $ / g，``）;
+};
